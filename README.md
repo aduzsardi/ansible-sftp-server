@@ -15,7 +15,6 @@ pip install ansible==2.9.11
 - Add your server in the ansible inventory file `hosts`
 
 - Run the sftp-server.yml playbook with ansible
-  - Some variables are encrypted inside the playbook, which requires ansible-vault password to actually run the playbook
 
 ```shell
 ansible-playbook sftp-server.yml
