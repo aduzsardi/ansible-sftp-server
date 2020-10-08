@@ -1,0 +1,78 @@
+---
+- name: Configure sftp server
+  hosts: all
+  become: true
+
+  vars:
+    sftp_host: localhost
+    sftp_port: 22
+    sftp_system_group: sftpusers
+    sftp_fs_root: /srv/sftp
+    sftp_users_expire_days: "15"
+    sftp_useradd_script: /usr/local/sbin/sftpuseradd
+    swaks_version: swaks-20190914.0
+    default_send_mail: "no"
+    mail_to: root@localhost
+    mail_from: root@localhost
+    smtp_user: nobody
+    smtp_passwd: nopass
+    smtp_server: localhost
+    smtp_port: 25
+    smtp_protocol: SMTP
+    # https://github.com/jetmore/swaks/blob/v20190914.0/doc/base.pod
+  tasks:
+
+    - name: Create SFTP users group
+      group:
+        system: yes
+        state: present
+        name: "{{ sftp_system_group }}"
+
+    - name: Create SFTP users chroot filesystem directory
+      file:
+        owner: root
+        group: root
+        mode: 0755
+        state: directory
+        path: "{{ sftp_fs_root }}"
+
+    - name: Copy sshd config
+      template:
+        src: templates/sshd_config.j2
+        dest: /etc/ssh/sshd_config
+        force: yes
+        owner: root
+        group: root
+        mode: 0644
+      notify: restart ssh
+
+    - name: Copy sftpuseradd shell script
+      template:
+        src: templates/sftpuseradd.j2
+        dest: "{{ sftp_useradd_script }}"
+        force: yes
+        owner: root
+        group: root
+        mode: 0750
+
+    - name: Install Net::SSLeay
+      apt:
+        name: libnet-ssleay-perl
+        state: present
+        update_cache: yes
+
+    - name: Install swaks
+      get_url:
+        url: https://www.jetmore.org/john/code/swaks/files/{{ swaks_version }}/swaks
+        dest: /usr/local/bin/swaks
+        force: yes
+        owner: root
+        group: root
+        mode: 0711
+
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        enabled: yes
+        state: restarted

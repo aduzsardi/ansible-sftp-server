@@ -1,0 +1,4 @@
+venv
+.ansible_facts_cache
+.vagrant
+*.log

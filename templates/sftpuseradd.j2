@@ -1,0 +1,165 @@
+#!/bin/bash
+##
+## Author: Alex Duzsardi <alex.duzsardi@infinitpartners.com>
+
+###
+### sftpuseradd — Add chroot-ed SFTP only user
+###
+### Usage:
+###   sftpuseradd [-h|--help]
+###   sftpuseradd [-m|--mail] <username>
+###
+### Options:
+###   <username>   The name of the user to be created
+###   -h|--help        Show this message.
+###   -m|--mail        Send email with user details
+
+
+# enable debugging flag in bash
+# set -x
+
+# fail early if something is missing or wrong
+set -euo pipefail
+
+SFTP_HOST="{{ sftp_host }}"
+SFTP_PORT="{{ sftp_port }}"
+
+SFTP_USER_NAME="${1:-}"
+SFTP_USER_PASSWD=$(tr -cd '[:alnum:]' < /dev/urandom | fold -w 24 | head -n 1) || :
+SFTP_FS_ROOT="{{ sftp_fs_root }}"
+SFTP_SYSTEM_GROUP="{{ sftp_system_group }}"
+SFTP_USER_EXPIRE_DAYS="{{ sftp_users_expire_days }}"
+SFTP_USER_EXPIRE_DATE=$(date -d "+${SFTP_USER_EXPIRE_DAYS} days" '+%Y-%m-%d')
+
+TEMP_FILE=$(mktemp)
+SEND_MAIL="{{ default_send_mail }}"
+
+MAIL_TO="{{ mail_to }}"
+MAIL_FROM_ADDRESS="{{ mail_from }}"
+MAIL_FROM="SFTP Server' <${MAIL_FROM_ADDRESS}>"
+
+SMTP_USER="{{ smtp_user }}"
+SMTP_PASSWD="{{ smtp_passwd }}"
+SMTP_HOST="{{ smtp_server }}"
+SMTP_PORT="{{ smtp_port }}"
+SMTP_PROTOCOL="{{ smtp_protocol }}"
+
+function help {
+    sed -rn 's/^### ?//;T;p' "$0"
+    exit 0
+}
+
+function cleanup {
+    rm -f "${TEMP_FILE}"
+}
+
+function error {
+    local msg="$1"
+    local bold="\e[1m" yellow="\e[93m" red="\e[91m" rst="\e[0m" white="\e[37m"
+    echo
+    echo -e "${bold}${red}ERROR: ${white}${msg}${rst}"
+    echo
+    exit 1
+}
+
+function sanity_checks {
+    # Check params
+    test -z "${SFTP_USER_NAME}"       && error "You have to provide the <username> as an argument"
+    test -z "${SFTP_USER_PASSWD:-}"   && error "Something wrong with the user password generator variable"
+    test -z "${SFTP_FS_ROOT:-}"       && error "SFTP filesystem root is not set"
+    test -z "${SFTP_SYSTEM_GROUP:-}"  && error "SFTP system group is not set" 
+    return 0
+}
+
+function create_sftp_user {
+    # If the user does not exist already , create it
+    if ! grep "${SFTP_USER_NAME}" /etc/passwd &> /dev/null; then
+        useradd --base-dir "${SFTP_FS_ROOT}" -g "${SFTP_SYSTEM_GROUP}" --expiredate "${SFTP_USER_EXPIRE_DATE}" \
+                --create-home --no-user-group --shell /usr/sbin/nologin "${SFTP_USER_NAME}"
+    else
+        error "User ${SFTP_USER_NAME}, already exists on this server"
+    fi
+    return 0
+}
+
+function set_sftp_user_passwd {
+    if grep "${SFTP_USER_NAME}" /etc/passwd &> /dev/null; then
+        echo -e "${SFTP_USER_PASSWD}\n${SFTP_USER_PASSWD}" | passwd "${SFTP_USER_NAME}" &> /dev/null
+    else
+        error "User ${SFTP_USER_NAME}, not found on this server"
+    fi
+    return 0
+}
+
+function set_chroot_permissions {
+    if test -d  "${SFTP_FS_ROOT}/${SFTP_USER_NAME}"; then
+        chown root:"${SFTP_SYSTEM_GROUP}" "${SFTP_FS_ROOT}/${SFTP_USER_NAME}"
+        chmod g+s "${SFTP_FS_ROOT}/${SFTP_USER_NAME}"
+    else
+        error "Folder ${SFTP_FS_ROOT}/${SFTP_USER_NAME} doesn't exists"
+    fi
+    return 0
+}
+
+function display_results {
+    local bold="\e[1m" yellow="\e[93m" red="\e[91m" rst="\e[0m" white="\e[37m"
+    local divider="=============================="
+    local header="\n\n%s\n"
+    local footer="\n\n"
+    local format=" ${yellow}%-10s\t${white}%s${rst}\n"
+
+    printf "${bold}${header}${rst}" "SFTP USER DETAILS"
+    printf "%s\n" "${divider}"
+
+    printf "${format}"  "Username:" "${SFTP_USER_NAME}" \
+                        "Password:" "${SFTP_USER_PASSWD}" \
+                        "Host:" "${SFTP_HOST}" \
+                        "Port:" "${SFTP_PORT}" \
+                        "Home:" "${SFTP_FS_ROOT}/${SFTP_USER_NAME}" \
+                        "Expires:" "${SFTP_USER_EXPIRE_DATE}" \
+                        | tee -a "${TEMP_FILE}"
+    printf "${footer}"
+    return 0
+}
+
+function send_mail {
+    if [[ "${SEND_MAIL}" == "yes" ]]; then
+        swaks --silent --server "${SMTP_HOST}" --port "${SMTP_PORT}" --protocol "${SMTP_PROTOCOL}" --tls-on-connect \
+              --helo "${SFTP_HOST}" --auth-user "${SMTP_USER}" --auth-password "${SMTP_PASSWD}" \
+              --from "${MAIL_FROM_ADDRESS}" --h-Subject: "SFTP Account - ${SFTP_USER_NAME}" \
+              --to "${MAIL_TO}" --body <(cat -v  "${TEMP_FILE}" | sed -r 's/\^\[\[[0-9]+m//g')
+    fi
+    return 0
+}
+
+function main {
+    ARG1="${1:-}"
+    ARG2="${2:-}"
+    if [[ "${ARG1}" == "-h" ]] || [[ "${ARG1}" == "--help" ]]; then
+        help
+    elif [[ "${ARG1}" == "-m" ]] || [[ "${ARG1}" == "--mail" ]]; then
+        SEND_MAIL="yes"
+        if [[ "${ARG2:0:1}" == "-" ]]; then
+            help
+        else
+            SFTP_USER_NAME="${2:-}"
+        fi
+    elif [[ "${ARG1:0:1}" == "-" ]]; then
+        help    
+    fi
+
+    sanity_checks
+    create_sftp_user
+    set_sftp_user_passwd
+    set_chroot_permissions
+    display_results
+    send_mail
+}
+
+if [[ "${USER}" != "root" ]]; then
+    error "This script needs to be run with administrative privileges: root or sudo"
+fi
+
+trap cleanup EXIT
+
+main $@
