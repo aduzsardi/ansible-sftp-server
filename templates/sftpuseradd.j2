@@ -36,7 +36,7 @@ SEND_MAIL="{{ default_send_mail }}"
 
 MAIL_TO="{{ mail_to }}"
 MAIL_FROM_ADDRESS="{{ mail_from }}"
-MAIL_FROM="SFTP Server' <${MAIL_FROM_ADDRESS}>"
+MAIL_FROM="SFTP Server <${MAIL_FROM_ADDRESS}>"
 
 SMTP_USER="{{ smtp_user }}"
 SMTP_PASSWD="{{ smtp_passwd }}"
@@ -111,6 +111,7 @@ function display_results {
     printf "${bold}${header}${rst}" "SFTP USER DETAILS"
     printf "%s\n" "${divider}"
 
+    echo "<pre>" >> "${TEMP_FILE}"
     printf "${format}"  "Username:" "${SFTP_USER_NAME}" \
                         "Password:" "${SFTP_USER_PASSWD}" \
                         "Host:" "${SFTP_HOST}" \
@@ -118,16 +119,17 @@ function display_results {
                         "Home:" "${SFTP_FS_ROOT}/${SFTP_USER_NAME}" \
                         "Expires:" "${SFTP_USER_EXPIRE_DATE}" \
                         | tee -a "${TEMP_FILE}"
+    echo "</pre>" >> "${TEMP_FILE}"
     printf "${footer}"
     return 0
 }
 
 function send_mail {
     if [[ "${SEND_MAIL}" == "yes" ]]; then
-        swaks --silent --server "${SMTP_HOST}" --port "${SMTP_PORT}" --protocol "${SMTP_PROTOCOL}" --tls-on-connect \
+        swaks --silent 1 --suppress-data --server "${SMTP_HOST}" --port "${SMTP_PORT}" --protocol "${SMTP_PROTOCOL}" --tls-on-connect \
               --helo "${SFTP_HOST}" --auth-user "${SMTP_USER}" --auth-password "${SMTP_PASSWD}" \
-              --from "${MAIL_FROM_ADDRESS}" --h-Subject: "SFTP Account - ${SFTP_USER_NAME}" \
-              --to "${MAIL_TO}" --body <(cat -v  "${TEMP_FILE}" | sed -r 's/\^\[\[[0-9]+m//g')
+              --from "${MAIL_FROM_ADDRESS}" --h-From: "${MAIL_FROM}" --h-Subject: "SFTP Account - ${SFTP_USER_NAME}" \
+              --to "${MAIL_TO}" --attach-type text/html --attach-body @<(cat -v  "${TEMP_FILE}" | sed -r 's/\^\[\[[0-9]+m//g')
     fi
     return 0
 }

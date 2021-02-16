@@ -8,8 +8,7 @@
 sudo apt update && sudo apt install python3-pip python3-venv
 python3 -m venv ansible
 source ansible/bin/active
-pip install wheel
-pip install ansible==2.9.11
+pip install wheel ansible==2.9.11
 ```
 
 - Add your server in the ansible inventory file `hosts`

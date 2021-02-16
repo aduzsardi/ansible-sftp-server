@@ -10,7 +10,7 @@
     sftp_fs_root: /srv/sftp
     sftp_users_expire_days: "15"
     sftp_useradd_script: /usr/local/sbin/sftpuseradd
-    swaks_version: swaks-20190914.0
+    swaks_version: swaks-20201014.0
     default_send_mail: "no"
     mail_to: root@localhost
     mail_from: root@localhost
